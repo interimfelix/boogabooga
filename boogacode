@@ -1,0 +1,1735 @@
+local module = {}
+
+-- services
+local rep = game:GetService("ReplicatedStorage")
+local run = game:GetService("RunService")
+local market = game:GetService("MarketplaceService")
+
+-- player specific stuff
+local player = game.Players.LocalPlayer
+local mouse = player:GetMouse()
+local cam = workspace.CurrentCamera
+
+-- gui
+local playerGui = player:WaitForChild("PlayerGui")
+local secondaryGui
+local mainGui
+local spawnGui
+
+-- databanks
+local structureData
+local settingsData
+local levelData
+local shopData
+local itemData
+local colorData
+local patchNotes
+local effectData
+
+-- utilities
+local soundModule
+local GU
+local FL
+
+-- other handlers
+local functionBank
+local guiEmitter
+local building
+local device
+local chat
+local main
+
+
+
+
+-- random module variables
+local lastToast,toastWait = 0,0
+local currentToast = 1
+local noteSerializer = 0
+
+module.initialize = function()
+	secondaryGui = playerGui:WaitForChild("SecondaryGui")
+	mainGui = playerGui:WaitForChild("MainGui")
+	spawnGui = playerGui:WaitForChild("SpawnGui")
+
+	structureData = require(rep.Modules.StructureData)
+	settingsData = require(rep.Modules.SettingsData)
+	levelData = require(rep.Modules.LevelData)
+	shopData = require(rep.Modules.ShopData)
+	itemData = require(rep.Modules.ItemData)
+	colorData = require(rep.Modules.ColorData)
+	patchNotes = require(rep.Modules.PatchNotes)
+	effectData = require(rep.Modules.EffectData)
+
+	soundModule = require(rep.Modules.SoundModule)
+	GU = require(rep.Modules.GameUtil)
+	FL = require(rep.Modules.FunctionLibrary)
+
+	functionBank = require(script.Parent.FunctionBank)
+	guiEmitter = require(script.Parent.GuiEmitter)
+	building = require(script.Parent.Building)
+	device = require(script.Parent.DeviceManager)
+	chat = require(script.Parent.Chat)
+	main = require(script.Parent.Main)
+
+	module.TransformDayCounter = function(a)
+		local gui = mainGui.Panes.Subordinate.DayCounter
+		local ls = gui.Line.Size
+
+		gui.Position = UDim2.new(0.5, 0, 0.2 - (a*0.05), 0)
+		--gui.GroupTransparency = FL.Flip(a)
+		gui.Title.TextTransparency =  FL.Flip(a)
+		gui.Line.BackgroundTransparency =  FL.Flip(a)
+		gui.Line.Size = UDim2.new(a, ls.X.Offset, ls.Y.Scale, ls.Y.Offset)
+	end
+
+	local dayVisualQueue = {}
+	local showingDay = false
+	local firstDay = true
+
+	module.DrawProcessorGui = function(structure, billboard)
+		local data = structure.DataFolder
+		for i = 1, 6 do
+			local v = data.Queue:FindFirstChild(tostring(i))
+
+			local frame
+			if i == 1 then
+				frame = billboard.Backdrop.Current
+			else
+				frame = billboard.Backdrop.Queue[tostring(i)]
+			end
+
+			if v and v.Value ~= "" then
+				frame.Image = itemData.GetImage(v.Value)
+			else
+				frame.Image = ""
+			end
+		end
+
+		local percent = data.Percent.Value
+		local bar : Frame = billboard.Backdrop.Duration.Slider
+
+		local changedSize = (percent - bar.Size.X.Scale)
+		local speed = changedSize * (5/3)
+
+		if percent == 0 then
+			bar:TweenSize(UDim2.fromScale(0, 1), Enum.EasingDirection.Out, Enum.EasingStyle.Linear, 0.01, true)
+		else
+			bar:TweenSize(UDim2.fromScale(percent, 1), Enum.EasingDirection.Out, Enum.EasingStyle.Linear, speed, true)
+		end
+
+		--if changedSize == 0 then
+
+		--elseif percent == 0 then
+		--	bar:TweenSize(UDim2.fromScale(0, 1), Enum.EasingDirection.Out, Enum.EasingStyle.Linear, 0.01, true)
+
+		--elseif percent < bar.Size.X.Scale then
+		--	if data.Queue[1].Value == "" then
+		--		bar:TweenSize(UDim2.fromScale(1, 1), Enum.EasingDirection.Out, Enum.EasingStyle.Sine, 0.2, true, function()
+		--			bar.Size = UDim2.fromScale(0, 1)
+		--		end)
+		--	else
+		--		bar.Size = UDim2.fromScale(0, 1)
+		--	end
+		--else
+		--	bar:TweenSize(
+		--		UDim2.fromScale(math.clamp(percent, 0, 1), 1), 
+		--		Enum.EasingDirection.Out, 
+		--		Enum.EasingStyle.Sine, 
+		--		0.2, 
+		--		true
+		--	)
+		--end
+	end
+
+	module.ShowDays = function(dayCount)
+		coroutine.wrap(function()
+			repeat task.wait() until _G.data and _G.data.hasSpawned
+			if showingDay then
+				dayVisualQueue[#dayVisualQueue+1] = dayCount
+				return
+			end
+			showingDay = true
+
+			local songs = {
+				"BeautyMusic",
+				"Meydän - 01 - Glimpse of Eternity",
+				"Meydän - 04 - Please, wake up",
+				"Meydän - 05 - Surreal Forest",
+				"Meydän - 07 - Rain",
+				--"Meydän - 08 - Contemplate the stars",
+			}
+
+			if not firstDay then
+				local songName = songs[math.random(#songs)]
+				--local song = rep.Sounds.Music[songName]
+				--functionBank.FadeTrack(song, 10, 40)
+				soundModule.PlaySound(songName)
+			end
+
+
+			local length = 2
+			local smooth = 75
+
+			local gui = mainGui.Panes.Subordinate.DayCounter
+			if firstDay then
+				gui.Title.Text = "Welcome to the island"
+				firstDay = false
+			elseif dayCount == 1 then
+				gui.Title.Text = "You have survived ".. FL.MakeNumbersWords(dayCount) .." day"
+			else
+				gui.Title.Text = "You have survived ".. FL.MakeNumbersWords(dayCount) .." days"
+			end
+
+			for i = 0, 1, 1/smooth do
+				local a = FL.Flip(FL.Flip(i) ^ 3)
+				module.TransformDayCounter(a)
+				task.wait(1/length/smooth)
+			end
+			task.wait(1)
+			for i = 0, 1, 1/smooth do
+				local a = FL.Flip(i) ^ 3
+				module.TransformDayCounter(a)
+				task.wait(1/length/smooth/10)
+			end
+			showingDay = false
+
+			if #dayVisualQueue > 0 then
+				local d = dayVisualQueue[1]
+				table.remove(dayVisualQueue, 1)
+				module.ShowDays(d)
+			end
+		end)()
+	end
+
+	module.DrawChestList = function()
+		local chestShopGui = mainGui.Panes.Dominant.Shop.Lists.ChestGui
+		local selectedChest = chestShopGui.CurrentChest.Value
+		local currentIcon
+		local has
+		for _, chestIcon in chestShopGui.List:GetChildren() do
+			if chestIcon:IsA("ImageButton") then
+				local itemName = chestIcon.Name
+				local itemInfo = itemData[itemName]
+				if not itemInfo then continue end
+
+				local item = GU.GetItem(itemName)
+				local quantity = item.quantity
+
+				chestIcon.TextLabel.Text = FL.FormatInt(quantity)
+				chestIcon.LayoutOrder = itemInfo.cost or math.huge
+
+				if itemName == selectedChest then
+					currentIcon = chestIcon
+					has = item
+				end
+			end
+		end
+
+		if currentIcon then
+			local chestFrame = chestShopGui.ChestFrame
+
+			chestFrame.Icon.BackgroundColor3 = currentIcon.BackgroundColor3
+			chestFrame.Icon.Image = currentIcon.Image
+			chestFrame.Icon.ImageColor3 = currentIcon.ImageColor3
+			chestFrame.Icon.TextLabel.Text = currentIcon.TextLabel.Text
+			chestFrame.Title.Text = GU.GetName(selectedChest)
+			chestFrame.Title.TextColor3 = currentIcon.ImageColor3
+			chestFrame.Cost.Text = FL.FormatInt(itemData[selectedChest].cost) .. " coins"
+			if has and has.quantity > 0 then
+				chestFrame.OpenButton.Text = "OPEN"
+				chestFrame.OpenButton.BackgroundColor3 = colorData.goodGreen
+				chestFrame.Icon.TextLabel.TextColor3 = colorData.goodGreen
+			else
+				chestFrame.OpenButton.Text = ">> "
+				chestFrame.OpenButton.BackgroundColor3 = colorData.ironGrey
+				chestFrame.Icon.TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			end
+		end
+	end
+
+	module.DrawPatchNotes = function()
+		local changelogGui = spawnGui.Changelog
+		functionBank.ClearOldFrames(changelogGui.List)
+		local serial = 1
+		for _,noteData in patchNotes do
+			local newHeader = changelogGui.Templates.Header:Clone()
+			newHeader.Text = noteData.title
+			newHeader.LayoutOrder = serial
+			serial = serial+1
+			newHeader.Parent = changelogGui.List
+			newHeader.Visible = true
+
+			local newTitle = changelogGui.Templates.Title:Clone()
+			newTitle.Text = noteData.date
+			newTitle.LayoutOrder = serial
+			serial = serial+1
+			newTitle.Parent = changelogGui.List
+			newTitle.Visible = true
+
+			for _,update in noteData.updates do
+				if update.textType == "title" then
+					local newTitle = changelogGui.Templates.Title:Clone()
+					newTitle.Text = update.message
+					newTitle.LayoutOrder = serial
+					serial = serial+1
+					newTitle.Parent = changelogGui.List
+					newTitle.Visible = true
+
+				else
+					local newNote = changelogGui.Templates.Note:Clone()
+					newNote.Text = update.message
+					newNote.LayoutOrder = serial
+					serial = serial+1
+					newNote.Parent = changelogGui.List
+					newNote.Visible = true
+				end
+			end
+		end
+
+		spawn(function()
+			changelogGui.List.CanvasSize = UDim2.new(1,0,0,changelogGui.List.UIListLayout.AbsoluteContentSize.Y)
+		end)
+
+	end
+
+	module.UpdatePlayerList = function(playerListData)
+		-- clear the initial cards?
+
+		if device.device == "mobile" then
+			secondaryGui.UIScale.Scale = .6
+		elseif device.device == "pc" then
+			secondaryGui.UIScale.Scale = 1
+		end
+
+
+		for _,v in secondaryGui.PlayerList.List:GetChildren() do
+			if v:IsA("ImageButton") and v.Name ~= "ActionPanel" then
+				v:Destroy()
+			end
+		end
+
+		--local actionPanel = secondaryGui.PlayerList.List.ActionPanel
+
+		main.playerListData = playerListData
+
+		for _, playerInfo in playerListData do
+			local otherPlayer = game.Players:FindFirstChild(playerInfo.name)
+
+			local nameTag = secondaryGui.PlayerList.Templates.PlayerTag:Clone()
+			nameTag.Name = playerInfo.name
+			nameTag.NameLabel.Text = playerInfo.name
+			nameTag.TribeIcon.ImageColor3 = playerInfo.color
+
+			local tribeName = playerInfo.tribeName
+
+			nameTag.LevelLabel.Text = playerInfo.level
+			--nameTag.TribeIcon.Visible = true
+			nameTag.Name = playerInfo.name
+			nameTag.LayoutOrder = (colorData.tribeOffsets[tribeName] or 0) + playerInfo.name:sub(1,1):byte()
+			nameTag.Parent = secondaryGui.PlayerList.List
+			nameTag.Visible = true
+			--nameTag.Size = UDim2.new(0,nameTag.TextLabel.TextBounds.X+30,.075,0)
+
+
+			--local tribeKey, tribeInfo = GU.IsInATribe()
+			--local menuType = tribeInfo and (tribeInfo.chief == player.playerName and "chief" or "member") or "none"
+
+			--nameTag.Activated:connect(function(input,gp)
+			--	if menuType == "chief" then
+			--		actionPanel.KickButton.Visible = true
+			--	else
+			--		actionPanel.KickButton.Visible = false
+			--	end
+
+			--	actionPanel.Visible = true
+			--	actionPanel.TargetPlayerName.Value = nameTag.Name
+			--	actionPanel.LayoutOrder = nameTag.LayoutOrder+1
+			--end)
+
+			---- move the frame
+			--if actionPanel.Visible then
+			--	local hasFrame = secondaryGui.PlayerList.List:FindFirstChild(actionPanel.TargetPlayerName.Value)
+			--	if hasFrame then
+			--		actionPanel.LayoutOrder = hasFrame.LayoutOrder+1
+			--	end
+			--end
+
+
+		end -- end of MakeCard
+
+		secondaryGui.PlayerList.List.CanvasSize  = UDim2.new(0,0,0,#secondaryGui.PlayerList.List:GetChildren()*24)
+	end
+
+	module.UpdateArmor = function()
+		module.UpdateStats()
+		for locus,armorName in _G.data.armor do
+			local frame = mainGui.Panes.Dominant.Inventory.ArmorFrame.Selection[locus]
+			if armorName and armorName ~= "none" then
+				-- show armor in their slot
+				frame.Image = itemData.GetImage(armorName)
+				frame.DefaultIcon.Visible =  false 
+			else
+				frame.Image = ""
+				frame.DefaultIcon.Visible= true 
+				--show nil in that slot
+			end
+		end
+	end
+
+	module.MakeToast = function(toastData)
+		local title,message,color,image,duration = toastData.title,toastData.message,toastData.color,toastData.image,toastData.duration
+
+		if rep.Config.RelativeTime.Value-lastToast < toastWait then
+			repeat wait(math.random()/30) until rep.Config.RelativeTime.Value-lastToast >= toastWait
+		end
+		lastToast = rep.Config.RelativeTime.Value
+		toastWait = duration+2 
+
+		-- bring toast in
+		currentToast = currentToast +1
+		local toastId = currentToast
+		local toastFrame = mainGui.Panes.Subordinate.Toasts
+		toastFrame.Message.Text = ""
+		toastFrame.Title.Text = title
+		toastFrame.Image.Image = image
+		toastFrame.Image.BackgroundColor3 = color
+		toastFrame.Message.TextColor3 = color
+		-- bring toast in
+		toastFrame:TweenPosition(UDim2.new(1,3,.8,0),Enum.EasingDirection.In,Enum.EasingStyle.Quad,1,true)
+		wait(1)
+		for i = 1, #message do
+			toastFrame.Message.Text = string.sub(message,1,i)
+			soundModule.PlaySound("Text")
+			wait(1/15)
+		end
+		wait(duration)
+		if currentToast == toastId then
+			toastFrame:TweenPosition(UDim2.new(1.5,3,.8,0),Enum.EasingDirection.Out,Enum.EasingStyle.Quad,1,true)
+		end
+	end	
+
+	module.DrawTribeGui = function()
+		_G.tribes = rep.Events.RequestTribeData:InvokeServer()
+		for _, totem in workspace.Entities.Totems:GetChildren() do
+			functionBank.ShowTotem(totem)
+		end
+		local tribeKey,tribeData = GU.IsInATribe()
+		if tribeKey then
+			local tribeMenu = mainGui.Panes.Dominant.Tribe.Tribe
+			-- player is in tribe
+			--tribeMenu.ChiefTitle.BackgroundColor3 = color
+			--tribeMenu.ChiefTitle.Text = "CHIEF "..string.upper(tribeData.chief)
+			local color = colorData.tribeColors[tribeData.color]
+			tribeMenu.Chief.ImageLabel.BackgroundColor3 = color
+			tribeMenu.Chief.Message.TextColor3 = color
+			tribeMenu.Chief.TextBox.TextColor3 = color
+
+			tribeMenu.Chief.Message.Text = tribeData.message
+			tribeMenu.Chief.TextBox.Text = tribeData.message
+			--if tribeData.message ~= "" then
+			--	tribeMenu.Chief.Message.Text = "\""..tribeData.message.."\""
+			--else
+			--	tribeMenu.Chief.Message.Text = ""
+			--end
+
+			tribeMenu.Members.MembersTitle.Text = "MEMBERS"
+			tribeMenu.Members.MembersTitle.BackgroundColor3 = color
+			--tribeMenu.Members.InviteButton.BackgroundColor3 = color
+			--tribeMenu.Diplomacy.Frame.SetStance.BackgroundColor3 = color
+			tribeMenu.Title.Text = string.upper(tribeData.color).." TRIBE"
+			tribeMenu.Title.TextColor3 = color
+
+			-- clear members and add new ones
+			functionBank.ClearOldFrames(tribeMenu.Members.List)
+
+			local chiefButton = mainGui.Panes.Dominant.Tribe.Templates.Player:Clone()
+			chiefButton.PlayerName.Text = tribeData.chief
+			chiefButton.Level.Text = functionBank.getLevel(tribeData.chief)
+			chiefButton.Level.BackgroundColor3 = color
+
+			chiefButton.Parent = tribeMenu.Members.List
+			chiefButton.Visible = true
+
+			for _,v in tribeData.members do
+				local memberButton = mainGui.Panes.Dominant.Tribe.Templates.Player:Clone()
+				memberButton.PlayerName.Text = v
+				memberButton.Level.Text = functionBank.getLevel(v)
+
+				memberButton.Level.BackgroundColor3 = color
+				memberButton.Parent = tribeMenu.Members.List
+				memberButton.Visible = true
+			end
+
+			if tribeData.chief == player.Name then
+				tribeMenu.Chief.TextBox.Visible = true
+				tribeMenu.Chief.Message.Visible = false
+			else
+				tribeMenu.Chief.TextBox.Visible = false
+				tribeMenu.Chief.Message.Visible = true
+			end
+		end -- end of if tribekey
+	end
+
+	module.CreateNotification = function(text,color,delayTime)
+		if delayTime then
+			task.wait(delayTime)
+		end
+		local messageData = {
+			speakerName = "CLIENT", -- defaults to name of speaker
+			filteredResult = text, -- the filtered text result
+			speakerColor = color, -- color of speaker name (based on tribe), default ColorData.brownUI
+			messageColor = color,-- color of message text, default white
+			tags = {},
+			sound = "Text", -- name of a sound to play locally when this chat is received,
+		}
+		chat.SendMessage(messageData)
+		--duration = duration or 1
+		--local fadeLength = 2
+		--local totalNotes = #mainGui.Panes.Subordinate.Notifications:GetChildren()-2
+		--if totalNotes >= 3 then
+		--	local lowestNote,noteLevel = nil,math.huge
+		--	for _,v in mainGui.Panes.Subordinate.Notifications:GetChildren() do
+		--		if v:IsA("TextLabel") then
+		--			if v.LayoutOrder<noteLevel then
+		--				lowestNote,noteLevel = v,v.LayoutOrder
+		--			end
+		--		end
+		--	end
+		--	if lowestNote then
+		--		lowestNote:Destroy()
+		--	end
+		--end
+
+		--local notification = mainGui.Panes.Subordinate.Notifications.Templates.TextLabel:Clone()
+		--notification.Text = text
+		--notification.TextColor3 = color or Color3.fromRGB(255,255,255)
+		--notification.LayoutOrder = noteSerializer
+		--noteSerializer = noteSerializer+1
+
+		---- if the number of notifications is too large, remove the one with the lowest value
+		--notification.Parent = mainGui.Panes.Subordinate.Notifications
+		--notification.Visible = true
+		--debris:AddItem(notification,duration+fadeLength)
+
+		--local tweenInfo = TweenInfo.new(fadeLength,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut,0,false,duration or 1)
+		--local goals = {
+		--	BackgroundTransparency = 1,
+		--	TextTransparency = 1,
+		--	TextStrokeTransparency = 1,
+		--}
+		--local tween = tweenService:Create(notification,tweenInfo,goals)
+		--tween:Play()
+
+
+	end
+
+	module.UpdateBillboards = function(clear)
+		if not main.selectionTarget then return end
+		local gui = playerGui:FindFirstChild(main.selectionTarget.Name)
+		if not gui then return end
+
+		if clear then gui:Destroy() main.selectionTarget = nil return end
+
+		for _, v in FL.CollectOfType(gui.Frame.List, "ImageButton") do
+			v:Destroy()
+		end
+
+		if itemData[gui.Name] then
+			local codeName = itemData[gui.Name].structureCode
+			local structureInfo = codeName and structureData[codeName]
+			if structureInfo then
+				for index, item in _G.data.inventory do
+					local itemInfo = itemData[item.name]
+
+					if not GU.IsValidInputForStructure(item.name, gui.Name) then continue end
+
+					local button = gui.Frame.Templates.Item:Clone()
+					button.Icon.Image = itemData.GetImage(item.name)
+					button.TextLabel.Text = item.quantity or 0
+					button.Name = item.name
+					button.LayoutOrder = index
+					button.Parent = gui.Frame.List
+					button.Visible = true
+					button.MouseButton1Down:connect(function()
+						rep.Events.InteractStructure:FireServer(main.selectionTarget,item.name)
+						soundModule.PlaySound("Click3")
+					end)
+				end
+			end
+		end
+	end
+
+	module.ScaleWithClipper = function(clipper, slider, percent, axis)
+		if axis == "X" or axis == "x" then
+			clipper.Size = UDim2.fromScale(percent, 1)
+			slider.Size = UDim2.fromScale(1/percent, 1)
+		else
+			clipper.Size = UDim2.fromScale(1, percent)
+			slider.Size = UDim2.fromScale(1, 1/percent)
+		end
+	end
+
+	module.UpdateStats = function() 
+		local char = player.Character
+		local hum = char and char:FindFirstChild("Humanoid")
+
+		if not hum then return end
+		local topbar = mainGui.Panes.Subordinate.Topbar
+		local counters = topbar.Currency
+		local spellFrames = mainGui.Panes.Subordinate.Toolbar.Spells
+		local levelBar = topbar.Stats.level
+
+		local data = _G.data
+		local nextLevelCost = levelData[data.level] or math.huge
+		local armorAmount = GU.CalculateArmor()
+
+		local levelPercent = math.round(data.essence)/nextLevelCost
+		local foodPercent = math.round(data.stats.food)/100
+		local healthPercent = math.round(hum.Health)/hum.MaxHealth
+		local overhealPercent = math.clamp(math.round(data.stats.overheal + hum.Health)/100, 0, 1)
+		local armorPercent = math.clamp(armorAmount/itemData.MaxDefense, 0, 1)
+
+		levelBar.Frame.Slider.Size = UDim2.fromScale(levelPercent, 1)
+		levelBar.Frame.NumberLabel.Text = "LVL " .. FL.FormatInt(data.level)
+		levelBar.Frame.NumberFrame.Text = FL.FormatInt(math.round(data.essence)).."/"..FL.FormatInt(nextLevelCost) .. " EXP"
+
+		--foodBar.Backdrop.Slider.Size = UDim2.fromScale(foodPercent, 1)
+		--foodBar.TextLabel.Text = tostring(math.round(foodPercent * 100))-- .. "%"
+
+		--healthBar.Backdrop.Slider.Size = UDim2.fromScale(healthPercent, 1)
+		--healthBar.Backdrop.OverhealSlider.Size = UDim2.fromScale(overhealPercent, 1)
+		--healthBar.TextLabel.Text = tostring(math.round(healthPercent * 100))-- .. "%"
+
+		if data.userSettings.statVisualType == 1 then -- circles
+			local statBars = mainGui.Panes.Subordinate.Condition.Stats.Circles
+			local foodBar = statBars.Food
+			local healthBar = statBars.Health
+			local armorBar = statBars.Defense
+
+			foodBar.NumberFrame.Text = tostring(math.round(foodPercent * 100)) .. "%"
+			module.ScaleWithClipper(foodBar.Clipper, foodBar.Clipper.Slider, foodPercent, "Y")		
+			healthBar.NumberFrame.Text = tostring(math.round(healthPercent * 100)) .. "%"
+			module.ScaleWithClipper(healthBar.Clipper, healthBar.Clipper.Slider, healthPercent, "Y")
+			module.ScaleWithClipper(healthBar.OverhealClipper, healthBar.OverhealClipper.Slider, overhealPercent, "Y")
+
+			if armorAmount > 0 then
+				armorBar.NumberFrame.Text = tostring(armorAmount)
+				module.ScaleWithClipper(armorBar.Clipper, armorBar.Clipper.Slider, armorPercent, "Y")
+				armorBar.Visible = true
+			else
+				armorBar.Visible = false
+			end
+			mainGui.Panes.Subordinate.Topbar.Stats.UIGridLayout.CellSize = UDim2.new(0.333, -6, 1, -6)
+		elseif data.userSettings.statVisualType == 2 then -- bars
+			local statBars = mainGui.Panes.Subordinate.Condition.Stats.Bars
+			local foodBar = statBars.Food
+			local healthBar = statBars.Health
+			local armorBar = statBars.Defense
+
+			foodBar.NumberLabel.Text = tostring(math.round(foodPercent * 100))
+			foodBar.Slider.Slider.Size = UDim2.fromScale(foodPercent, 1)
+			healthBar.NumberLabel.Text = tostring(math.round(healthPercent * 100))
+			healthBar.Slider.Slider.Size = UDim2.fromScale(healthPercent, 1)
+			healthBar.Slider.OverhealSlider.Size = UDim2.fromScale(overhealPercent, 1)
+
+			if armorAmount > 0 then
+				armorBar.NumberLabel.Text = tostring(armorAmount)
+				armorBar.Slider.Slider.Size = UDim2.fromScale(armorPercent, 1)
+				armorBar.Visible = true
+			else
+				armorBar.Visible = false
+			end
+			mainGui.Panes.Subordinate.Topbar.Stats.UIGridLayout.CellSize = UDim2.new(0.333, -6, 1, -6)
+		elseif data.userSettings.statVisualType == 3 then
+			local statBars = mainGui.Panes.Subordinate.Topbar.Stats
+			local foodBar = statBars.food.Frame
+			local healthBar = statBars.health.Frame
+			local armorBar = statBars.defense.Frame
+
+			foodBar.NumberLabel.Text = tostring(math.round(foodPercent * 100))
+			foodBar.Slider.Size = UDim2.fromScale(foodPercent, 1)
+			healthBar.NumberLabel.Text = tostring(math.round(healthPercent * 100))
+			healthBar.Slider.Size = UDim2.fromScale(healthPercent, 1)
+			healthBar.OverhealSlider.Size = UDim2.fromScale(overhealPercent, 1)
+
+			if armorAmount > 0 then
+				armorBar.NumberLabel.Text = tostring(armorAmount).. " Defense"
+				armorBar.Slider.Size = UDim2.fromScale(armorPercent, 1)
+				armorBar.Visible = true
+				statBars.UIGridLayout.CellSize = UDim2.new(0.25, -6, 1, -6)
+			else
+				armorBar.Visible = false
+				statBars.UIGridLayout.CellSize = UDim2.new(0.333, -6, 1, -6)
+			end
+		end
+
+
+		counters.coins.Label.Text = FL.FormatInt(data.coins)
+		counters.mojo.Label.Text = FL.FormatInt(data.mojo)
+
+		--if nextLevelCost == math.huge then
+		--	counters.essence.Visible = false
+		--else
+		--	counters.essence.Label.Text = tostring(data.essence).."/"..tostring(nextLevelCost)
+		--	counters.essence.Visible = true
+		--end
+
+
+		for spellType, spell in data.spells do
+			local frame = spellFrames[spellType]
+
+			if spell.name then
+				local spellInfo = itemData[spell.name]
+				local timeIn = rep.Config.RelativeTime.Value - spell.lastUse
+				local can = timeIn > spellInfo.cooldown
+
+				if can then
+					frame.Cooldown.Visible = false
+				else
+					local timeLeft = spellInfo.cooldown - timeIn
+					local percent = timeLeft / spellInfo.cooldown
+
+					frame.Cooldown.Duration.Text = FL.FormatInt(math.ceil(timeLeft)).."s"
+					module.ScaleWithClipper(frame.Cooldown.Clipper, frame.Cooldown.Clipper.Slider, percent, "Y")
+
+					frame.Cooldown.Visible = true
+				end
+
+				frame.Icon.Image = itemData.GetImage(spell.name)
+				frame.Visible = true
+			else
+				frame.Visible = false
+			end
+
+			if frame:GetAttribute("SpellName") ~= spell.name then
+				frame.EffectFrame:ClearAllChildren()
+				frame:SetAttribute("SpellName", spell.name)				
+				if spell.name then
+					local spellInfo = itemData[spell.name]
+					if spellInfo.particles then
+						for _, particleName in spellInfo.particles do
+							local emitter = rep.Particles.Gui[particleName]:Clone()
+							emitter.Parent = frame.EffectFrame
+
+							guiEmitter.Add(emitter)
+						end
+					end
+				end
+			end
+		end
+
+		for _, frame in mainGui.Panes.Subordinate.Condition.Effects:GetChildren() do
+			if not frame:IsA("GuiBase") then continue end
+			if not data.stats.effects[frame.Name] then
+				frame:Destroy()
+			end
+		end
+		for effectName, effectInfo in data.stats.effects do
+			local frame = mainGui.Panes.Subordinate.Condition.Effects:FindFirstChild(effectName) or mainGui.Panes.Subordinate.Condition.Templates.EffectLabel:Clone()
+			frame.Name = effectName
+
+			frame.Duration.Text = math.ceil(effectInfo.duration)
+			frame.Icon.Image = effectData[effectName].image
+			frame.Description.Text = effectData[effectName].description
+
+			frame.Parent = mainGui.Panes.Subordinate.Condition.Effects
+			frame.Visible = true
+		end
+
+		if data.level >= 100 then
+			counters.mojo.BuyButton.Visible = true
+			counters.mojo.Spacer.Visible = false
+			--mainGui.Panes.Dominant.Mojo.Tip.Visible = false
+			--mainGui.Panes.Dominant.Mojo.RebirthButton.Visible = true
+		else
+			counters.mojo.BuyButton.Visible = false
+			counters.mojo.Spacer.Visible = true
+			--mainGui.Panes.Dominant.Mojo.Tip.Visible = true
+			--mainGui.Panes.Dominant.Mojo.RebirthButton.Visible = false
+		end
+
+
+		local playerLoad,maxLoad = GU.CalculateLoad()
+		local bagPercent = playerLoad / maxLoad
+
+
+		local bagMeter = mainGui.Panes.Dominant.Inventory.ArmorFrame.Selection.bag
+		if bagPercent > 1 then
+			bagMeter.Clipper.Slider.BackgroundColor3 = colorData.badRed
+			bagPercent = 1
+		else
+			bagMeter.Clipper.Slider.BackgroundColor3 = colorData.white
+		end
+		module.ScaleWithClipper(bagMeter.Clipper, bagMeter.Clipper.Slider, bagPercent, "Y")
+
+		--local bagMeter = mainGui.Panes.Dominant.Inventory.BagMeter
+		--bagMeter.Slider.Size = UDim2.fromScale(math.clamp(playerLoad/maxLoad,0,1), 1)
+		--bagMeter.Frame.TextLabel.Text = FL.FormatInt(playerLoad).."/"..FL.FormatInt(maxLoad)
+
+		if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			if not player.Character.PrimaryPart.CanCollide then
+				player:Kick()
+			end
+		end
+	end
+
+	module.DrawSettings = function()
+		local settingsGui = mainGui.Panes.Dominant.Settings
+
+		for _, list in settingsGui.Categories.Lists:GetChildren() do
+			if not list:IsA("GuiBase") then
+				continue
+			end
+
+			functionBank.ClearOldFrames(list)
+		end
+
+		for settingName, info in settingsData do
+			local frame = settingsGui.Templates.Setting:Clone()
+			local interactableButton = frame.Interactables[info.interactionType]
+
+			local function getValue()
+				local currentValue, secondValue = _G.data.userSettings[settingName], nil
+				if currentValue == nil then
+					currentValue = info.default
+					local result = rep.Events.ChangeSetting:InvokeServer(settingName,currentValue)
+				end
+				if info.interactionType == "Dropdown" then
+					secondValue = info.possible[currentValue]
+				end
+				return currentValue, secondValue
+			end
+
+			local function colorize()
+				local currentValue = getValue()
+				if info.interactionType == "Switch" then
+					interactableButton.BackgroundColor3 = currentValue and Color3.fromRGB(170, 255, 0) or Color3.fromRGB(255, 0, 0)
+				end
+				frame.SettingName.Text = info.displayName
+
+				interactableButton.Visible = true
+			end
+
+			local isShowing = false
+			local function click()
+				if info.interactionType == "Switch" then
+					local currentValue = getValue()
+					local newValue = not currentValue
+
+					local result = rep.Events.ChangeSetting:InvokeServer(settingName, newValue)
+
+					if result then
+						_G.data.userSettings[settingName] = newValue
+						colorize()
+						info.apply(newValue)
+					end
+
+
+				elseif info.interactionType == "Dropdown" then
+					isShowing = not isShowing
+
+					functionBank.ClearOldFrames(frame.Dropdown)
+
+					if isShowing then
+						for i, dropdownName in info.possible do
+							local dropdownElement = settingsGui.Templates.DropdownElement:Clone()
+							dropdownElement.Text = dropdownName
+							dropdownElement.LayoutOrder = i
+							dropdownElement.Parent = frame.Dropdown
+							dropdownElement.Visible = true
+							if getValue() == i then
+								dropdownElement.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+							end
+
+							dropdownElement.Activated:Connect(function()
+								local result = rep.Events.ChangeSetting:InvokeServer(settingName,i)
+
+								if result then
+									_G.data.userSettings[settingName] = i
+									colorize()
+									info.apply(i, dropdownName)
+								end
+								isShowing = not isShowing
+								click()
+							end)
+						end
+					end
+				end
+			end
+
+			colorize()
+			info.apply(getValue())
+
+			interactableButton.Activated:Connect(click)
+
+			local category = info.category or "misc"
+
+			local list = settingsGui.Categories.Lists:FindFirstChild(category)
+			if not list then
+				list = settingsGui.Templates.CategoryList:Clone()
+				list.Name = category
+				list.Parent = settingsGui.Categories.Lists
+			end
+			local button = settingsGui.CategorySelect:FindFirstChild(category)
+			if not button then
+				button = settingsGui.Templates.CategoryButton:Clone()
+				button.Name = category
+				button.Text = category:sub(1,1):upper()..category:sub(2,category:len())
+				button.Parent = settingsGui.CategorySelect
+
+				button.Visible = true
+
+				button.Activated:Connect(function()
+					for _, list in  settingsGui.Categories.Lists:GetChildren() do
+						if not list:IsA("GuiBase") then continue end
+						list.Visible = list.Name == category
+					end
+
+					settingsGui.Categories.Category.Text = button.Text
+					settingsGui.CategorySelect.Visible = false
+					settingsGui.Categories.Visible = true
+				end)
+			end
+
+			frame.Parent = list
+			frame.Visible = true
+		end
+	end
+
+	module.DrawCoinShop = function()
+		for id, info in shopData.coins do
+			local frame = mainGui.Panes.Dominant.Shop.Templates.GoldFrame:Clone()
+			frame.Cost.Text = FL.FormatInt(info.cost) .. " R$"
+			frame.Reward.Text = "+ " .. FL.FormatInt(info.coins)
+			frame.LayoutOrder = info.cost
+			frame.Parent = mainGui.Panes.Dominant.Shop.Lists.CoinGui.List
+			frame.Visible = true
+
+			frame.Activated:Connect(function()
+				market:PromptProductPurchase(player,id)
+			end)
+			frame.Cost.Activated:Connect(function()
+				market:PromptProductPurchase(player,id)
+			end)
+		end
+	end
+
+	module.ClosePanels = function(except)
+		for paneName,v in main.panels do
+			local toggle = except == paneName
+			for _, frame in v.opens do
+				frame.Visible = toggle
+			end
+			v.status = toggle
+		end
+	end
+
+	module.DrawTribeMenu = function()
+		local tribeKey,tribeData = GU.IsInATribe()
+		if not tribeKey then
+			mainGui.Panes.Dominant.Tribe.NewTribe.Visible = true
+			mainGui.Panes.Dominant.Tribe.Tribe.Visible = false
+			functionBank.ClearOldFrames(mainGui.Panes.Dominant.Tribe.NewTribe.ColorList)
+
+			-- present all the colors of tribes that don't exist
+			for colorName,colorRGB in colorData.tribeColors do
+				local colorButton = mainGui.Panes.Dominant.Tribe.Templates.TribeColor:Clone()
+				for _,tribeData in _G.tribes do
+					if tribeData.color == colorName then
+						local possibleChief = game.Players:FindFirstChild((tribeData.chief or ""))
+						if possibleChief then
+							colorButton.Image = "https://web.roblox.com/Thumbs/Avatar.ashx?x=100&y=100&Format=Png&userid="..possibleChief.UserId
+						end
+					end
+				end
+
+				-- IF NOT CLAIMED
+				colorButton.Name = colorName
+				colorButton.BackgroundColor3 = colorRGB
+				colorButton.Visible = true
+				colorButton.Parent = mainGui.Panes.Dominant.Tribe.NewTribe.ColorList
+				colorButton.Activated:connect(function()
+					main.chosenColor = colorName
+					mainGui.Panes.Dominant.Tribe.NewTribe.ColorTitle.BackgroundColor3 = colorRGB
+					mainGui.Panes.Dominant.Tribe.NewTribe.ColorTitle.TextColor3 = colorRGB
+					mainGui.Panes.Dominant.Tribe.NewTribe.ColorTitle.Text = string.upper(colorName)--.." Tribe"
+
+					-- clear the borders 
+					for _,v in mainGui.Panes.Dominant.Tribe.NewTribe.ColorList:GetChildren() do
+						if v:IsA("ImageButton") then
+							if v ~= colorButton then
+								v.BorderSizePixel = 0
+							else
+								v.BorderSizePixel = 5
+							end
+						end
+					end
+				end)
+			end
+		else
+			mainGui.Panes.Dominant.Tribe.NewTribe.Visible = false
+			mainGui.Panes.Dominant.Tribe.Tribe.Visible = true
+		end
+	end
+
+	module.AutoScaleScrollingFrameWithLayout = function(scrollingFrame : ScrollingFrame, layout : UIGridLayout)
+		local function apply()
+			scrollingFrame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 32)
+		end
+		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(apply)
+		apply()
+	end
+
+	module.OpenGui = function(card, overwriteToggle)
+		if not card then
+			-- enable the chat
+			--mainGui.Panes.Subordinate.Chat.Visible = true
+			secondaryGui.PlayerList.Visible = true
+			module.ClosePanels()
+			return
+		end
+		soundModule.PlaySound("UIToggle")
+		-- close all guis and return
+
+		--  check for  mouseboundstructure
+		building.ClearMouseBoundStructure()
+
+
+		local toggle = overwriteToggle == nil and not main.panels[card].status or overwriteToggle
+
+		if not toggle then
+			secondaryGui.PlayerList.Visible = true
+			--mainGui.Panes.Subordinate.Chat.Visible = true
+
+			module.ClosePanels()
+
+		else
+			secondaryGui.PlayerList.Visible = false
+			if device.device == "mobile" then
+				--mainGui.Panes.Subordinate.Chat.Visible = true
+			end
+
+			module.ClosePanels(card)
+		end
+
+		if card == "Tribe" then
+			module.DrawTribeMenu()
+			module.DrawTribeGui()
+		elseif card == "Bag" then
+			functionBank.ReachTutorial("openBag")
+		end
+	end
+
+	module.UpdateMojoMenu = function()
+		for _,v in mainGui.Panes.Dominant.Shop.Lists.MojoItems:GetChildren() do
+			if v:IsA("Frame") then
+				local itemInfo = itemData[v.Name]
+				if itemInfo then
+					local owns = _G.data.mojoItems[v.Name]
+					local enabled = not _G.data.disabledMojos[v.Name]
+
+					if not owns then
+						v.TextButton.Text = "Unlock"
+						v.TextButton.BackgroundColor3 = colorData.mojoPurp
+						v.ItemNameLabel.TextColor3 = colorData.mojoPurp
+						continue
+					end
+					if itemInfo.toggleable then
+						if enabled then
+							v.TextButton.BackgroundColor3 = colorData.badRed
+							v.TextButton.Text = "disable"
+							v.ItemNameLabel.TextColor3 = colorData.badRed
+						else
+							v.TextButton.BackgroundColor3 = colorData.goodGreen
+							v.TextButton.Text = "enable"
+							v.ItemNameLabel.TextColor3 = colorData.goodGreen
+						end
+					else
+						v.TextButton.BackgroundColor3 = colorData.essenceYellow
+						v.TextButton.Text = "owned"
+						v.ItemNameLabel.TextColor3 = colorData.essenceYellow
+						continue
+					end
+
+				end
+			end
+		end
+	end
+
+	module.DrawLevelMenu = function()
+		functionBank.ClearOldFrames(mainGui.Panes.Dominant.Shop.Lists.Levels)
+
+		local templates = mainGui.Panes.Dominant.Shop.Templates
+		for itemName, info in itemData do
+			local levelSuite = info.levelSuite
+			if levelSuite then
+				local selectedLevel, highestLevel = GU.GetLevel(itemName)
+				local frame = templates.Level:Clone()
+				frame.Title.Text = GU.GetName(itemName)
+				frame.Cost.Text = "Level "..FL.FormatInt(selectedLevel)
+				frame.ImageButton.Image = itemData.GetImage(itemName)
+				frame.LayoutOrder = info.craftLevel or 999
+
+				--if highestLevel >= levelSuite.maxLevel then
+				--	frame.Cost.Text = "maxed"
+				--end
+
+				for i = 1, levelSuite.maxLevel do
+					local levelFrame = templates.LevelFrame:Clone()
+					local button,spacer = levelFrame.Button, levelFrame.Spacer
+
+					local unlocked = i <= highestLevel
+					local equippedLine = i <= selectedLevel
+					local equipped = i == selectedLevel
+
+					local color, transparency
+
+					if equippedLine then
+						color, transparency = colorData.goodGreen, 0
+					elseif unlocked then
+						color, transparency = colorData.mojoPurp, 0
+					else
+						color, transparency = Color3.new(), 0.5
+					end
+					button.BackgroundColor3 = color
+					button.BackgroundTransparency = transparency
+					spacer.BackgroundColor3 = color
+					spacer.BackgroundTransparency = transparency
+					button.Text = i
+					if equipped then
+						button.BorderSizePixel = 3
+					end
+
+					button.Activated:Connect(function()
+						if equipped then -- do nothin, they have it already bro
+						elseif unlocked then
+							rep.Events.ChangeLevel:FireServer(itemName, i)
+						else
+							functionBank.PromptPurchase(itemName, i)
+							module.OpenGui()
+						end
+					end)
+
+					levelFrame.Parent = frame.LevelSelect
+					levelFrame.Visible = true
+				end
+
+				frame.Parent = mainGui.Panes.Dominant.Shop.Lists.Levels
+				frame.Visible = true
+			end
+		end
+	end
+
+	module.ClearOldFrames = function(list)
+		for _, frame in FL.CollectOfType(list:GetChildren(), "GuiBase") do
+			frame:Destroy()
+		end
+	end
+
+	module.SelectionSetup = function(buttons, initialValue)
+		local function selectFrame(name)
+			for _, otherButton in buttons do 
+				if otherButton.Name == name then 
+					local size = otherButton:GetAttribute("OriginalSize") + UDim2.fromOffset(8,8)
+					otherButton:TweenSize(size, Enum.EasingDirection.Out, Enum.EasingStyle.Linear, 0.3, true)
+					otherButton.Pointer.Value.Visible = true
+				else
+					local size = otherButton:GetAttribute("OriginalSize")
+					otherButton:TweenSize(size, Enum.EasingDirection.Out, Enum.EasingStyle.Linear, 0.3, true)
+					otherButton.Pointer.Value.Visible = false
+				end
+			end
+		end
+
+		for _, button in buttons do
+			button:SetAttribute("OriginalSize", button.Size)
+			button.Activated:Connect(function()
+				selectFrame(button.Name)
+			end)
+		end
+
+		if initialValue then
+			selectFrame(initialValue)
+		end
+
+		return selectFrame
+	end
+
+	local rewardQueue = {}
+	local playingReward = false
+	module.RewardPrompt = function(itemName, title, titleColor)
+		if playingReward then
+			rewardQueue[#rewardQueue+1] = {itemName, title, titleColor}
+			return
+		end
+		playingReward = true
+
+		task.spawn(function()
+			local itemInfo = itemData.GetEntity(itemName)
+
+			local rewardFrame = mainGui.Panes.Subordinate.RewardItem :: Frame
+			rewardFrame.ItemImage.Image = itemData.GetImage(itemName)
+			rewardFrame.ItemImage.ItemName.Text = GU.GetName(itemName) --itemName
+			rewardFrame.Title.Text = title or ""
+			rewardFrame.Title.TextColor3 = titleColor or colorData.white
+
+			rewardFrame.Size = UDim2.fromScale(0,0)
+			rewardFrame.Visible = true
+
+			rewardFrame:TweenSize(UDim2.fromScale(0.5, 0.5), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.3, true)
+			task.wait(2)
+			rewardFrame:TweenSize(UDim2.fromScale(0, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Linear, 0.15, true)
+			task.wait(0.2)
+
+			rewardFrame.Visible = false
+			playingReward = false
+
+			task.wait(0.1)
+			if rewardQueue[1] then
+				local info = rewardQueue[1]
+				table.remove(rewardQueue, 1)
+				module.RewardPrompt(table.unpack(info))
+			end
+		end)
+	end
+
+	module.NewRecipe = function(items)
+		for _, item in items do
+			module.RewardPrompt(item, "Recipe Unlocked!", colorData.essenceYellow)
+		end
+	end
+
+	local craftList
+
+	module.UpdateCraftMenu = function()
+		local craftUI = mainGui.Panes.Dominant.Craft
+
+		local inventory = _G.data.inventory
+
+		for key,recipeButton in craftList do
+			local entityName = recipeButton.EntityName.Value
+			local entityInfo = itemData[entityName]
+
+			for _,ingredientLabel in next,FL.CollectOfType(recipeButton.IngredientList,"GuiObject") do
+				local ingredientName = ingredientLabel.EntityName.Value
+				local ingredientInfo = itemData[ingredientName]
+				local requiredQuantity = entityInfo.recipe[ingredientName]
+
+				local item = GU.GetItem(ingredientName)
+				ingredientLabel.QuantityLabel.Text = requiredQuantity
+
+				if item.quantity >= requiredQuantity then
+					ingredientLabel.ImageColor3 = Color3.fromRGB(216,216,216)
+				else
+					ingredientLabel.ImageColor3 = colorData.softRed
+				end
+			end
+
+			local checks =  {
+				levelCheck = false,
+				mojoCheck = false,
+				ingredientsCheck = false,
+			}
+
+			local cardLocked = false
+
+			local craftLevel = entityInfo.craftLevel or 1
+			local playerLevel = _G.data.level
+			checks.levelCheck = playerLevel >= craftLevel
+
+			recipeButton.LayoutOrder = craftLevel
+			if entityInfo:HasTag("mojoItem") then
+				checks.mojoCheck = GU.HasMojoRecipe(entityName)
+			else -- no entry in MojoData, not applicable
+				checks.mojoCheck = true
+			end
+			-- ingredientsCheck = false
+			checks.ingredientsCheck = GU.CanCraftItem(entityName)
+
+			--  assess gauntlet
+			local passedChecks
+			for check,value in next,checks do
+				if value ~= true then
+					passedChecks = false
+					break
+				end
+				passedChecks = true
+			end
+
+			local statusImages = {
+				arrow = "rbxgameasset://Images/Right Arrow Hollow V2",
+				lock = "rbxassetid://4976358238",
+			}
+
+			if entityInfo:HasTag("mojoItem") then
+				recipeButton.LayoutOrder += FL.GetDictionaryLength(levelData) + 1
+			end
+			if passedChecks then -- enable button
+				recipeButton.Active = true
+				recipeButton.StatusImage.Visible = true
+				recipeButton.StatusImage.Image = statusImages.arrow
+				recipeButton.StatusImage.ImageColor3 = colorData.grey200
+				recipeButton.StatusImage.ImageTransparency = 0
+				recipeButton.StatusImage.StatusLabel.Visible = false
+				recipeButton.RecipeImage.ImageColor3 = colorData.white
+				recipeButton.BackgroundTransparency = 0
+
+			else -- no active, no background
+				recipeButton.Active = false
+				recipeButton.BackgroundTransparency = .7
+
+				if not checks.levelCheck or not checks.mojoCheck then -- lock, text
+					recipeButton.StatusImage.Visible = true
+					recipeButton.StatusImage.Image = statusImages.lock
+					recipeButton.StatusImage.ImageColor3 = Color3.fromRGB(0,0,0)
+					recipeButton.StatusImage.ImageTransparency = 0.5
+					recipeButton.StatusImage.StatusLabel.Visible = true
+
+					if not checks.mojoCheck then-- text as level
+						recipeButton.StatusImage.StatusLabel.Text = "MOJO"
+					elseif not checks.levelCheck then
+						recipeButton.StatusImage.StatusLabel.Text = craftLevel	
+					end
+
+				elseif not checks.ingredientsCheck then -- no lock, no text
+					recipeButton.StatusImage.Visible = false
+				end
+			end
+
+			--recipeButton:SetAttribute("CanSee", checks.levelCheck or _G.data.rebirths > 0)
+
+			--if not checks.levelCheck then
+			--	recipeButton.Visible = false
+			--end
+		end
+	end
+
+	module._lastCraftQuery = nil
+	module._lastCraftCategory = nil
+
+	module.QueryCraftMenu = function(categoryArray,query)
+		if not query then
+			query = module._lastCraftQuery
+		else
+			module._lastCraftQuery = query
+		end
+		if not categoryArray then
+			categoryArray = module._lastCraftCategory
+		else
+			module._lastCraftCategory = categoryArray
+		end
+
+		local craftUI = mainGui.Panes.Dominant.Craft
+
+		local inventory = _G.data.inventory
+
+		for _,recipeButton in craftList do
+			local entityName = recipeButton.EntityName.Value
+			local entityInfo = itemData[entityName]
+
+			local matches = itemData.ItemMatchesQuery(entityName, categoryArray, query)
+
+			if matches --[[and recipeButton:GetAttribute("CanSee")]] then
+				recipeButton.Visible = true
+			else
+				recipeButton.Visible = false
+			end
+		end
+	end
+
+	module.CreateCraftMenu = function()
+		local craftUI = mainGui.Panes.Dominant.Craft
+
+		if craftList then
+			for _, v in craftList do
+				v:Destroy()
+			end
+			craftList = nil
+		end
+
+		local list = {}
+		for entityName,entityInfo in itemData.GetItemsWithTags({"craftable"}) do
+
+			local recipeButton = craftUI.Templates.RecipeButton:Clone()
+			recipeButton.NameLabel.Text = GU.GetName(entityName)
+
+			recipeButton.RecipeImage.Image = itemData.GetImage(entityName)
+
+			recipeButton.EntityName.Value = entityName
+
+			for ingredientName,ingredientQuantity in next,entityInfo.recipe do
+				local ingredientLabel = craftUI.Templates.IngredientLabel:Clone()
+				local ingredientInfo = itemData[ingredientName]
+				ingredientLabel.ImageLabel.Image = itemData.GetImage(ingredientName)
+				ingredientLabel.EntityName.Value = ingredientName
+				ingredientLabel.Parent = recipeButton.IngredientList
+				ingredientLabel.Visible = true
+			end
+
+			recipeButton.Parent = craftUI.List
+			recipeButton.Visible = true
+
+			recipeButton.Activated:connect(function()
+				if entityInfo:HasTag("structure") then
+					module["OpenGui"]()
+					building.BindMouseStructure(entityName)
+				else
+					rep.Events.CraftItem:FireServer(entityName)
+					soundModule.PlaySound("Satchel Open")
+				end
+			end)
+
+			table.insert(list,recipeButton)
+		end	
+
+		craftList = list
+
+		module.UpdateCraftMenu()
+		module.QueryCraftMenu({"all"}, nil)
+	end
+
+	module._lastBagQuery = nil
+	module._lastBagCategory = nil
+	module._nonItemFrameCountForBag = 0
+
+	local inventoryFrames = {}
+	module.CreateInventory = function()
+		local inventoryGui = mainGui.Panes.Dominant.Inventory
+		local inventoryList = inventoryGui.List
+
+		local inventorySize = #_G.data.inventory
+		module._nonItemFrameCountForBag = 0
+
+		for _, frame in inventoryList:GetChildren() do
+			if not frame:IsA("GuiBase") then 
+				module._nonItemFrameCountForBag += 1 -- used to check if the gui needs to be created or not
+				continue 
+			end
+
+			local index = frame:GetAttribute("Index")
+			if index > inventorySize then
+				frame:Destroy()
+				inventoryFrames[index] = nil
+			else
+				frame.LayoutOrder = index
+			end
+		end
+	
+		local guiCount = #inventoryList:GetChildren() - module._nonItemFrameCountForBag
+
+		for itemKey = guiCount+1, inventorySize do
+			local newFrame = inventoryGui.Templates.Item:Clone()
+			newFrame:SetAttribute("Index", itemKey)
+			newFrame.Visible = false
+			newFrame.LayoutOrder = itemKey
+			newFrame.Parent = inventoryList
+
+			-- Initialize dragging variables
+			local isDragging = false
+			local startX, startY = 0, 0
+			local originalParent = nil
+
+			newFrame.InputBegan:connect(function(input, gp)
+				local item = _G.data.inventory[itemKey]
+
+				if input.UserInputType == Enum.UserInputType.Touch and not main.dragging then
+					local overlapsWith = nil
+					for _, otherFrame in ipairs(inventoryList:GetChildren()) do
+						if otherFrame:IsA("ScrollingFrame") then
+						if otherFrame.Parent.Visible and otherFrame ~= newFrame and otherFrame.AbsolutePosition.X <= input.Position.X and input.Position.X <= otherFrame.AbsolutePosition.X + otherFrame.AbsoluteSize.X and otherFrame.AbsolutePosition.Y <= input.Position.Y and input.Position.Y <= otherFrame.AbsolutePosition.Y + otherFrame.AbsoluteSize.Y then
+							overlapsWith = otherFrame
+							break
+						end
+					end
+					if not overlapsWith then
+						return
+					end
+					local overlapsIndex = overlapsWith and overlapsWith:GetAttribute("Index")
+
+					local x, y = input.Position.X, input.Position.Y
+					--if x < (cam.ViewportSize.X*.75) then
+					if x < (cam.ViewportSize.X * 0.75) and y < (cam.ViewportSize.Y * 0.9) then -- left 3/4 of the screen
+						rep.Events.DropBagItem:FireServer(itemKey)
+					elseif overlapsWith:GetAttribute("ContainerName") == "Toolbar" then --TODO: drag to toolbar
+						rep.Events.UseBagItem:FireServer(item.name, overlapsWith:GetAttribute("Index"))
+					else
+						if overlapsWith and overlapsIndex == itemKey then
+							if itemData[item.name].nourishment then
+								soundModule.PlaySound("Eat")
+							end
+							rep.Events.UseBagItem:FireServer(itemKey)
+						end
+					end
+				end
+			end
+		end)
+
+
+			newFrame.InputChanged:connect(function(input, gp)
+				if isDragging then
+					-- Move the frame to follow the cursor
+					newFrame.Position = UDim2.new(
+						0, input.Position.X - startX,
+						0, input.Position.Y - startY
+					)
+				end
+			end)
+
+			newFrame.InputEnded:connect(function(input, gp)
+				if isDragging then
+					-- Stop dragging
+					isDragging = false
+
+					-- Check if the frame is over a valid drop location
+					local overlapsWith = input.UserInputType == Enum.UserInputType.Touch and input.Position and input.Target
+					local overlapsIndex = overlapsWith and overlapsWith:GetAttribute("Index")
+					local item = _G.data.inventory[itemKey]
+					
+
+					if overlapsWith and overlapsIndex ~= nil then
+						if overlapsWith:GetAttribute("ContainerName") == "Toolbar" then
+							-- Dragged to toolbar
+							rep.Events.UseBagItem:FireServer(item.name, overlapsIndex)
+						elseif overlapsIndex == itemKey then
+							-- Dragged to original location
+							rep.Events.UseBagItem:FireServer(itemKey)
+							if itemData[item.name].nourishment then
+								soundModule.PlaySound("Eat")
+							end
+						else
+							-- Invalid drop location
+							newFrame.Parent = originalParent
+						end
+					else
+						-- Dropped outside of the inventory frame
+						rep.Events.DropBagItem:FireServer(itemKey)
+					end
+				end
+			end)
+
+			inventoryFrames[itemKey] = newFrame
+		end
+		--module.UpdateInventory()
+		--module.QueryInventory({"all"}, "")
+	end
+
+	module.QueryInventory = function(categoryArray,query)
+		if not query then
+			query = module._lastBagQuery
+		else
+			module._lastBagQuery = query
+		end
+		if not categoryArray then
+			categoryArray = module._lastBagCategory
+		else
+			module._lastBagCategory = categoryArray
+		end
+
+		for index, frame in inventoryFrames do
+			local item = _G.data.inventory[index]
+
+			local entityName = item and item.name
+			local entityInfo = itemData[entityName]
+
+			local matches = itemData.ItemMatchesQuery(item.name, categoryArray, query)
+
+			if (matches) and (not itemData.HasTag(entityName, "crate")) then
+				frame.Visible = true
+			else
+				frame.Visible = false
+			end
+		end
+
+
+	end
+
+	module.UpdateInventory = function()
+		if FL.GetDictionaryLength(_G.data.inventory) ~= FL.GetDictionaryLength(inventoryFrames) then
+			module.CreateInventory()
+			module.QueryInventory() -- sort it because all new frames are invisible
+		end
+
+		for itemKey,itemInfo in _G.data.inventory do
+			local frame = inventoryFrames[itemKey]
+			if not frame then continue end
+
+			frame.ImageLabel.Image = itemData.GetImage(itemInfo.name)	
+			frame.QuantityLabel.Text = itemInfo.quantity or 0
+			if itemInfo.quantity and itemInfo.quantity ~= 1 then
+				frame.QuantityLabel.Visible = true
+			else
+				frame.QuantityLabel.Visible = false
+			end
+		end
+
+		module.DrawChestList()
+
+		-- sort the ammo
+		if main.Tool then
+			local toolName, toolType, itemInfo = main.Tool:getTool()
+			local ammoImage = mainGui.Panes.Subordinate.Toolbar.AmmoImage
+			if toolName then
+				if toolType == "Ranged" then
+					local item = GU.GetItem(itemInfo.projectileName)
+					ammoImage.QuantityLabel.Text = item.quantity
+					ammoImage.Icon.Image = itemData.GetImage(itemInfo.projectileName)
+					ammoImage.Visible = true
+				end
+			else
+				ammoImage.Visible = false
+			end
+		end
+
+		module.UpdateBillboards()
+		if not craftList then
+			module.CreateCraftMenu()
+		else
+			module.UpdateCraftMenu()
+		end
+	end
+
+	module.IsHovering = function(frame, x,y)
+		local absPos = frame.AbsolutePosition
+		local absSize = frame.AbsoluteSize
+
+		return x >= absPos.X and x <= absPos.X + absSize.X and y >= absPos.Y and y <= absPos.Y + absSize.Y
+	end
+
+	module.GetGuiAtPosition = function(x,y, frames)
+		for _, v in frames do
+			if not v:IsA("GuiBase") then continue end
+
+			if module.IsHovering(v, x,y) then
+				return v
+			end
+		end
+	end
+
+	module.StartDragging = function(item, frameOfOrigin, list)
+		local x,y = mouse.X, mouse.Y
+
+		local frame = frameOfOrigin:Clone()
+		frame.Size = UDim2.fromOffset(frameOfOrigin.AbsoluteSize.X, frameOfOrigin.AbsoluteSize.Y)
+		frame.AnchorPoint = Vector2.new(.5,.5)
+		frame.Parent = mainGui.TempEffects
+
+		while frame and main.dragging do
+			x,y = mouse.X, mouse.Y
+			frame.Position = UDim2.new(0,x,0,y)
+			run.RenderStepped:wait() 
+		end
+
+		frame:Destroy()
+		main.dragging = false
+
+		if list then
+			local hoveringFrame = module.GetGuiAtPosition(x, y, list:GetChildren())
+			return x,y, hoveringFrame
+		end
+	end
+
+	module.SortToolbar = function()
+		for _,v in mainGui.Panes.Subordinate.Toolbar.List:GetChildren() do
+			if v:IsA("GuiBase") then
+				--repeat if not tonumber(v.Name) then wait() else break end until tonumber(v.Name)
+				local slotNum = tonumber(v.Name)
+				local slot = _G.data.toolbar[slotNum]
+				if (slot and FL.GetDictionaryLength(slot) > 0) then
+					v.ImageButton.ImageLabel.Image = itemData.GetImage(slot.name)
+					v.ImageButton.Visible = true
+				else
+					v.ImageButton.ImageLabel.Image = ""
+					v.ImageButton.Visible = false
+				end
+				if slotNum == _G.data.equipped then
+					v:TweenSize(UDim2.new(1, 6, 1, 6), Enum.EasingDirection.Out, Enum.EasingStyle.Sine, 0.2, true)
+				else
+					v:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Sine, 0.2, true)
+				end
+			end
+		end
+
+		if not _G.data.equipped then
+			if main.Tool then
+				main.Tool.animation:stop()
+			end
+		end
+	end
+
+	module.DrawMojoList = function()
+		functionBank.ClearOldFrames(mainGui.Panes.Dominant.Shop.Lists.MojoItems)
+
+		for itemName, info in itemData.GetItemsWithTags({"mojoItem"}) do
+			local frame = mainGui.Panes.Dominant.Shop.Templates.MojoItem:Clone()
+			frame.ItemNameLabel.Text = GU.GetName(itemName)
+			frame.ImageButton.Image = itemData.GetImage(itemName)
+			frame.Name = itemName
+
+			frame.Parent = mainGui.Panes.Dominant.Shop.Lists.MojoItems
+			frame.Visible = true
+
+			local function click()
+
+				if info.toggleable and GU.HasMojoRecipe(itemName) then
+					rep.Events.ToggleMojo:FireServer(itemName)
+					return
+				end
+
+				if GU.HasMojoRecipe(itemName) then
+					module.CreateNotification("You already own this",Color3.fromRGB(255,255,111))
+					return
+				end
+
+				functionBank.PromptPurchase(itemName)
+				module.OpenGui()
+			end
+
+			frame.TextButton.Activated:Connect(click)
+			frame.ImageButton.Activated:connect(click)
+		end
+	end
+
+	module.UpdateCosmetics = function()
+		functionBank.ClearOldFrames(mainGui.Panes.Dominant.Shop.Lists.CosmeticGui.List)
+
+		-- add the new ones
+		for itemKey,itemInfo in itemData.GetItemsWithTags({"cosmeticHat"}) do
+			if itemInfo.cost then
+				local newFrame = mainGui.Panes.Dominant.Shop.Templates.CosmeticFrame:Clone()
+				newFrame.TextButton.Text = FL.FormatInt(itemInfo.cost).."g"
+				newFrame.ImageButton.Image = itemData.GetImage(itemKey)
+				newFrame.ItemNameLabel.Text = GU.GetName(itemKey)
+				if _G.data.ownedCosmetics[itemKey] then
+					if _G.data.appearance[itemInfo.locus] ~= itemKey then
+						newFrame.TextButton.BackgroundColor3 = colorData.goodGreen
+						newFrame.ItemNameLabel.TextColor3 = colorData.goodGreen
+						newFrame.TextButton.Text = "WEAR"
+					else
+						newFrame.ItemNameLabel.TextColor3 = colorData.badRed
+						newFrame.TextButton.BackgroundColor3 = colorData.badRed
+						newFrame.TextButton.Text = "TAKE OFF"
+					end
+				end
+				newFrame.LayoutOrder = itemInfo.shopOrder
+				newFrame.Visible = true
+				newFrame.Parent = mainGui.Panes.Dominant.Shop.Lists.CosmeticGui.List
+
+				local function click()
+					if _G.data.ownedCosmetics[itemKey] then
+						rep.Events.EquipCosmetic:FireServer(itemKey)
+					else
+						functionBank.PromptPurchase(itemKey)
+						module.OpenGui()
+					end
+				end
+				newFrame.ImageButton.Activated:connect(click)
+				newFrame.TextButton.Activated:connect(click)
+
+
+			end
+		end
+	end
+end
+
+return module
